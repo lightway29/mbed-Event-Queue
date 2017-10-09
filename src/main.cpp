@@ -1,51 +1,68 @@
 #include <stdio.h>
+#include "mbed.h"
 #include "mbed_events.h"
 #include "rtos.h"
 
-#define ZHARK_CAN_EVENT_SIZE 32
-#define ZHARK_CAN_STACK_SIZE 1024
+EventQueue _event_queue_one(32 * EVENTS_EVENT_SIZE, NULL);
+EventQueue _event_queue_two(32 * EVENTS_EVENT_SIZE, NULL);
 
-EventQueue _can_callback_queue(32 * EVENTS_EVENT_SIZE, NULL);
+Thread _can_thread;
+Thread _sensor_thread;
 
-Thread* _can_thread;
+void event_queue_task() { printf("Event Task executed... \r\n"); }
 
-void can_bus_task() {
-  printf("Event queue dispached.. \r\n");
-  // _can_callback_queue.dispatch_forever();
+void event_queue_task_irq() {
+  printf("Event added to queue... \r\n");
+  _event_queue_one.call(&event_queue_task);
+}
 
+void event_queue_sensor_task() { printf("Event Sensor Task executed... \r\n"); }
+
+void event_queue_sensor_task_irq() {
+  printf("Sensor Event added to queue... \r\n");
+  _event_queue_two.call(&event_queue_sensor_task);
+}
+
+void can_task() {
+  printf("CAN Task... \r\n");
   while (1) {
-    _can_callback_queue.dispatch();
-    Thread::wait(10);
+    printf("Event dispatched... \r\n");
+    _event_queue_one.dispatch(100);
+    Thread::wait(100);
+  }
+}
+void sensor_task() {
+  printf("Sensor Task... \r\n");
+  while (1) {
+    printf("Sensor Event dispatched... \r\n");
+    _event_queue_two.dispatch(100);
+    Thread::wait(100);
   }
 }
 
-void can_task() { printf("Event queue task.. \r\n"); }
-
 int main() {
-  // _can_thread = new Thread(osPriorityNormal, ZHARK_CAN_STACK_SIZE, NULL, "CAN thread");
-  // osStatus status = _can_thread->start(callback(&_can_callback_queue, &EventQueue::dispatch_forever));
-
-  // normal priority thread for other events
-  // Thread eventThread(osPriorityNormal);
-  // _can_callback_queue.start(callback(&_can_callback_queue, &EventQueue::dispatch_forever));
-  //
-  // // call blink_led2 every second, automatically defering to the eventThread
-  // Ticker ledTicker;
-  // ledTicker.attach(_can_callback_queue.event(&can_task), 1.0f);
-
-  //
-  //
-
-  // _can_callback_queue.dispatch();
-  while (1) {
-    _can_callback_queue.dispatch(10);
-    printf("Event added \r\n");
-    Thread::wait(100);
+  osStatus can_status = _can_thread.start(can_task);
+  if (can_status != osOK) {
+    printf("[INFO] CAN thread not initialized \r\n");
+  } else {
+    printf("[INFO] CAN thread initialized ... [OK]\r\n");
   }
 
-  //
-  // while (1) {
-  //   wait(0.1);
-  //   _can_callback_queue.event(&can_task);
-  // }
+  osStatus sensor_status = _sensor_thread.start(sensor_task);
+  if (sensor_status != osOK) {
+    printf("[INFO] Sensor thread not initialized \r\n");
+  } else {
+    printf("[INFO] Sensor thread initialized ... [OK]\r\n");
+  }
+
+  Ticker canTicker;
+  canTicker.attach(&event_queue_task_irq, 2.0f);
+
+  Ticker sensorTicker;
+  sensorTicker.attach(&event_queue_sensor_task_irq, 10.0f);
+
+  while (1) {
+    printf("In main loop. \r\n");
+    Thread::wait(100);
+  }
 }
